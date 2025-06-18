@@ -10,6 +10,8 @@
 #endif
 #endif
 
+#include <assert.h>
+
 // platform specific includes
 #ifdef FUNBUILD_TARGET_WINDOWS
 #include <windows.h>
@@ -23,12 +25,22 @@
 #include <unistd.h>
 #endif
 
-/// Returns zero on failure and one on success
-int spawn_process(const char* exe, int argc, const char** argv);
+/// Returns zero on failure and one on success. argv must be null terminated
+int spawn_process(const char* exe, const char** argv);
 
-int spawn_process(const char* exe, int argc, const char** argv)
+int spawn_process(const char* exe, const char** argv)
 {
 #ifdef FUNBUILD_TARGET_WINDOWS
+	const int maxargs = 100;
+	int argc = 0;
+	for (int i = 0; i < maxargs; ++i) {
+		if (!argv[i]) {
+			break;
+		}
+		argc += 1;
+	}
+	assert(argc < maxargs);
+
 	STARTUPINFO si;
 	PROCESS_INFORMATION pi;
 
@@ -67,12 +79,11 @@ int spawn_process(const char* exe, int argc, const char** argv)
 	pid_t pid = fork();
 
 	if (pid == -1) {
-		return 1; // fork failed
+		return 1;
 	}
 
 	if (pid == 0) {
 		execvp(exe, (char* const*)argv);
-		// OS error trying to execvp
 		return 1;
 	}
 
