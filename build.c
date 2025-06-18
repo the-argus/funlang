@@ -11,6 +11,7 @@
 #endif
 
 #include <assert.h>
+#include <stdlib.h>
 
 // platform specific includes
 #ifdef FUNBUILD_TARGET_WINDOWS
@@ -91,4 +92,58 @@ int spawn_process(const char* exe, const char** argv)
 #else
 #error "Unsupported platform"
 #endif
+}
+
+// leaky bc this is a oneshot build program anyways
+typedef struct
+{
+	char** buf;
+	size_t len;
+	size_t cap;
+} stringlist_t;
+
+void stringlist_append(stringlist_t* list, char* item);
+char* stringlist_access(stringlist_t* list, size_t index);
+
+void stringlist_append(stringlist_t* list, char* item)
+{
+	const int initial_spots = 20;
+	if (list->cap <= list->len) {
+		if (list->buf) {
+			const size_t newcap = list->cap * 2;
+			void* newmem = realloc(list->buf, sizeof(char*) * newcap);
+			if (!newmem) {
+				abort(); // eh
+			}
+
+			list->buf = newmem;
+			list->cap = newcap;
+		} else {
+			assert(list->len == 0 && list->cap == 0);
+			list->buf = malloc(sizeof(char*) * initial_spots);
+			if (!list->buf) {
+				abort();
+			}
+			list->cap = initial_spots;
+		}
+	}
+
+	list->buf[list->len] = item;
+	list->len += 1;
+}
+
+char* stringlist_access(stringlist_t* list, size_t index)
+{
+	assert(index < list->len);
+	assert(list->buf);
+	return list->buf[index];
+}
+
+int main(int argc, char* argv[])
+{
+	stringlist_t flags = {};
+	stringlist_append(&flags, "-std=c99");
+	stringlist_append(&flags, "-Og");
+
+	return 0;
 }
