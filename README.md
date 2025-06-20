@@ -16,6 +16,8 @@ We're gonna have:
 - bounds checked slices
 - defined overflow behavior
 - odin/jai struct `using` statement
+- an odin-style context pointer
+- python style fstrings (which use the context's arena allocator by default)
 - `defer`
 - universal function call syntax + method-style function call syntax
 - functions can be in the namespace of a struct
@@ -47,8 +49,9 @@ We're gonna have:
   - SegmentedArena\<T\> (wrapper over segmented arena allocator)
   - GraphNode\<T\, Container> (item T and either ArrayList or SegmentedList of connected nodes, doubly linked)
   - PtrGraphNode\<T\, Container> (item T and either ArrayList or SegmentedList of *pointers* to connected nodes, doubly linked)
-  - Tree\<T\>
-  - PtrTree\<T\>
+  - Tree\<T\> (stores its children in an ArrayList)
+  - PtrTree\<T\> (stores an ArrayList of pointers to its children)
+  - BinaryTree\<T\>
   - BitArray
   - BitArrayList
 
@@ -79,6 +82,9 @@ const uint8_t* const bytes = some_function();
 ```
 
 A declaration in funlang:
+(the first `var` modifies `u8` and the second `var` modifies `*`. Rather than
+reading this as "a pointer to var" or reading a `T*` as a "pointer to const,"
+you can read it as a "const pointer" or "var pointer").
 
 ```rs
 var u8 var* bytes = some_function();
@@ -114,33 +120,31 @@ var i32 myvar;
 ### Declarations
 
 Declarations (of structs, type aliases, compile time known variables, and
-functions) are preceded by a `++`.
+functions) are preceded by a `++` or a `--` (public and private, respectively).
 
-- A type declaration is signalled by `++ type`
+- A type declaration is signalled by `++ type`, with the exception of struct
+  and namespace declarations, which are signalled by `++ struct` and
+  `++ namespace`, respectively. Though both structs and namespaces are types.
 - A function is signalled by `++ fun`
 - A compile time known variable is signalled by `++ <known typename> ...`
-- Additionally, there are `struct` blocks which are expressions which resolve
-  to a `type` and, as a result, can be assigned to a `type`.
-- Note that `fun` is unique in that, although it is on the place of a type in
-  a typical assignment, it is always a unique type, ie. `fun`s are never
-  convertible, only pointers can be converted after you take the address of the
-  function. Otherwise, the function is of a type only known by the compiler
-  which uniquely identifies it.
 
 ```rs
-++ type std = @import("std");
+// a file is namespace scope
+-- type std = @import("std");
 
-++ type Example = struct {
+++ struct Example
+{
     i32 i;
     f32 f;
 };
 
-++ type MyAlias = Example;
+-- type MyAlias = Example;
 
-++ fun main = () {
+++ fun main()
+{
     ++ comptime u64 max_strings = 20;
 
-    var std::Arena arena(std::c_allocator.alloc(1024 * 1024));
+    var std::Arena arena = std::Arena::nogrow(std::c_allocator.alloc(1024 * 1024)));
     var std::StringList strlist = std::StringList::new(arena ref);
     u8[] args = std::args_alloc(arena);
 
@@ -149,13 +153,13 @@ functions) are preceded by a `++`.
             break;
         }
         if is_flag(arg) { // definition not shown
-            std::print("got flag at {idx}");
+            std::print(f"got flag at {idx}");
         }
     }
 };
 ```
 
-### Struct syntax and procedural vs. struct vs. file scope
+### Struct syntax, and procedural vs. struct vs. namespace scope
 
 Struct definitions are a type of declaration so they are preceded by a `++`.
 `++ struct <Name>` precedes a block (a set of curly braces). Inside this block
@@ -164,37 +168,40 @@ present in the struct when it instantiated. Initialization describes *default
 values* for the fields of the struct, which can be overwritten by the programmer
 when instantiating the struct. Providing no initialization value is allowed in
 struct scope, as it means that that field will have to be initialized at
-instantiation time. It is valid to introduce other declarations within struct
-scope, including nesting another struct declaration.
+struct initialization time. It is valid to introduce other declarations within
+struct scope, including nesting another struct declaration.
 
 ```rs
-++ type MyCustomArray = struct {
+++ struct MyCustomArray
+{
     u8*? bytes;
     u64*? generations;
     u64 size;
     u64 len;
 
     ++ type Index = i32;
-    ++ type Handle = struct {
+
+    ++ struct Handle
+    {
         Index idx;
         u64 generation;
     };
 };
 ```
 
-The file scope is identical to struct scope syntactically, except that
+The namespace scope is identical to struct scope syntactically, except that
 variable declarations are declaring variables in the data segment of the
 program which will be accessible for its entire duration. Initialization
 expressions must be provided for all variables, the same as procedural scope.
 
 ```rs
-// file scope
+// namespace scope
 ++ type std = @import("std");
 
 var i32 my_global_int = 32;
 
-++ fun test = () {
-    std::print("{my_global_int}");
+++ fun test () {
+    std::print("f{my_global_int}");
     my_global_int += 1;
 };
 ```
@@ -208,4 +215,4 @@ is the entrypoint of the program.
 
 #### `using` keyword
 
-
+## Struct member access and namespace access
