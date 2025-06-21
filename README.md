@@ -10,8 +10,8 @@ We're gonna have:
 - Zig style options
 - Zig style non-nullable non-arithmetic-able pointers
 - Results, but the "error" value is always present and is instead called a status.
-- Rust-style enums (tagged unions, basically)
-- Match statements with the ability to match on tagged unions
+- Rust-style enums
+- Match statements with the ability to match on enums
 - Zig style captures for `if`, `while`, and `for`
 - bounds checked slices
 - defined overflow behavior
@@ -25,13 +25,12 @@ We're gonna have:
 - python style fstrings (which use the context's arena allocator by default)
 - `defer`
 - functions can be inside of a struct, in which case they can use the `self`
-  keyword for their first arguments to become memeber methods
+  keyword for their first arguments to become member methods
 - instead of labeled blocks, there are "taggable" blocks. mark a block `'` or
   `''` and then do `break';` `break'';` etc
 - A few built-in traits, no support for user-defined traits:
   - Iter
   - RandomAccessIter
-  - Destroy
   - Clone
   - Default
   - Status
@@ -54,9 +53,9 @@ We're gonna have:
   - SegmentedArena\<T\> (wrapper over segmented arena allocator)
   - GraphNode\<T\, Container> (item T and either ArrayList or SegmentedList of connected nodes, doubly linked)
   - PtrGraphNode\<T\, Container> (item T and either ArrayList or SegmentedList of *pointers* to connected nodes, doubly linked)
-  - Tree\<T\> (stores its children in an ArrayList)
-  - PtrTree\<T\> (stores an ArrayList of pointers to its children)
-  - BinaryTree\<T\>
+  - TreeNode\<T\> (stores its children in an ArrayList)
+  - PtrTreeNode\<T\> (stores an ArrayList of pointers to its children)
+  - BinaryTreeNode\<T\>
   - BitArray
   - BitArrayList
 
@@ -123,7 +122,8 @@ var i32 myvar;
 ### Declarations
 
 Declarations (of structs, type aliases, compile time known variables, public
-static variables, and functions) are preceded by a `++` or a `--`.
+static variables, and functions) are preceded by a `++` or a `--`. A declaration
+becomes an unqualified identifier within the scope it is in and nested scopes.
 
 - A type declaration is signalled by `++ type`, with the exception of struct
   and enum declarations, which are signalled by `++ struct` and
@@ -231,7 +231,7 @@ name collisions between the members of the two structs. For example:
 -- struct Person
 {
     u64 age;
-    utf8[] name;
+    []utf8 name;
 
     ++ fun printName(*self) {
         std::println("{self.name}");
@@ -327,7 +327,7 @@ includes methods and fields. For example:
 -- type std = @import("std");
 
 ++ struct Person {
-    utf8[] name;
+    []utf8 name;
     u64 age;
 
     ++ fun printAge(self) {
@@ -407,14 +407,14 @@ namespace `::` syntax instead of the `.` member access. For example:
     // struct can implement the `Default` trait. Only Default structs can be
     // `static`. Another option here would be to provide no default and use
     // *?char instead.
-    ++ utf8[] name = "DefaultName";
+    ++ []utf8 name = "DefaultName";
 
-    ++ fun printHelloName(*self) {
-        std::println(f"hello, {self.name:s}");
+    ++ fun printHelloName(self) {
+        std::println(f"hello, {self.name}");
     }
 
-    ++ fun printGoodbyeName(*self) {
-        std::println(f"goodbye, {self.name:s}");
+    ++ fun printGoodbyeName(self) {
+        std::println(f"goodbye, {self.name}");
     }
 }
 
@@ -448,14 +448,14 @@ followed by a semicolon:
 // print_functions.fun ----------------------------
 static;
 
-++ utf8[] name = "DefaultName";
+++ []utf8 name = "DefaultName";
 
 ++ fun printHelloName(*self) {
     std::println(f"hello, {self.name}");
 }
 
 ++ fun printGoodbyeName(*self) {
-    std::println(f"goodbye, {self.name:s}");
+    std::println(f"goodbye, {self.name}");
 }
 ```
 
@@ -465,3 +465,94 @@ an is not present in designated struct initializers and b) it does not take up
 space in actual instances of the struct and c) you cannot modify this field.
 This is primarily useful for declaring variables which need to be compile time
 constants but should also be able to have their address taken.
+
+### Function arguments and shadowing
+
+Function arguments cannot be `var`. Pointers can point to a `var` type, but the
+pointer itself cannot be reassigned.
+
+Variables declared in a procedural scope may be shadowed by other declarations.
+For example:
+
+```rs
+-- fun myFunction() {
+    // both of these values are const
+    []utf8 my_string = "Hello";
+    []utf8 my_string = "Goodbye"; 
+    // type may change
+    i64 my_string = 0;
+    // constness may change, previous values may be referenced on RHS
+    var i64 my_string = my_string;
+    // make it const again
+    i64 my_string = my_string;
+}
+```
+
+Shadowing is a purely syntactical feature: references to shadowed variables
+remain valid until the end of the scope in which they were declared.
+
+### `self` keyword and member methods
+
+When defining function parameter lists, it is possible to use a pointer to the
+special keyword `self` in place of the type and identifier of the first argument.
+`*self` may also be `*var self`.
+
+```rs
+++ struct Person
+{
+    []utf8 name;
+    u64 age;
+    *?Person child;
+
+    ++ fun setChild(*var self, *Person child) {
+        self.child = child;
+    }
+
+    ++ fun getChild(*self) -> *?Person {
+        return self.child;
+    }
+}
+```
+
+When calling member methods which take `self` by `var*`, it is necessary to
+explicitly use the `var` reference operator:
+
+```rs
+++ fun main() {
+    Person p = { .name = "Guy", .age = 42 };
+    Person p2 = { .name = "Child", .age = 12 };
+    if not p.getChild() {
+        p&var.setChild(p2&);
+    }
+}
+```
+
+### `if` / `else` and captures
+
+### `while` and captures
+
+### `for` and `Iter` and `RandomAccessIter`
+
+### Tagged blocks
+
+### Option
+
+### Result
+
+### Pointer to Option and Result
+
+### `defer` and `errdefer`
+
+### enums
+
+#### Match statements
+
+### Slices and arrays
+
+### String literals
+
+### `f`-strings
+
+### Vector and matrix types
+
+### context
