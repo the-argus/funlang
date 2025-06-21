@@ -198,7 +198,7 @@ struct scope, including nesting another struct declaration.
 
 The scope of a file is also the scope of a struct. For this reason it is not
 possible to create static variables which are accessible from functions in the
-namespace. To access variables declared at file scope, use `self` or `*self` or
+same scope. To access variables declared at file scope, use `self` or `*self` or
 `*var self`:
 
 ```rs
@@ -221,4 +221,49 @@ is the entrypoint of the program.
 
 #### `using` keyword
 
-## Struct member access and namespace access
+### Struct member access vs. namespace access
+
+Struct members are accessed with the typical `object.member` syntax. This
+includes methods and fields. For example:
+
+```rs
+-- type std = @import("std");
+
+++ struct Person {
+    *char name;
+    u64 age;
+
+    ++ fun printAge(self) {
+        std::print(f"{self.age}");
+    }
+}
+
+++ fun main() {
+    Person p = { .name = "Guy", .age = 42 };
+    p.printAge();
+}
+```
+
+But if you are accessing members which are not specific to particular instances
+of the struct, you use `::` instead of `.`. For example:
+
+```rs
+-- type std = @import("std");
+
+-- struct my_functions {
+    ++ fun printHello() {
+        std::print("hello");
+    }
+    ++ fun printGoodbye() {
+        std::print("hello");
+    }
+
+    ++ u64 size = 64;
+};
+
+++ func main() -> i32 {
+    my_functions::printHello();
+    my_functions::printGoodbye();
+    return my_functions::size.to<i32>();
+}
+```
