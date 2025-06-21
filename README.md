@@ -122,14 +122,14 @@ var i32 myvar;
 
 ### Declarations
 
-Declarations (of structs, type aliases, compile time known variables, and
-functions) are preceded by a `++` or a `--` (public and private, respectively).
+Declarations (of structs, type aliases, compile time known variables, public
+static variables, and functions) are preceded by a `++` or a `--`.
 
 - A type declaration is signalled by `++ type`, with the exception of struct
   and enum declarations, which are signalled by `++ struct` and
   `++ enum`, respectively. Though both structs and enums are also types.
 - A function is signalled by `++ fun`
-- A compile time known variable is signalled by `++ <known typename> ...`
+- A compile time known variable is signalled by `++ comptime`
 - All of the above can be preceded by a `--` instead of `++`, to create a
   private declaration. A private declaration is visible only within the scope
   it was declared in and inner scopes.
@@ -137,12 +137,12 @@ functions) are preceded by a `++` or a `--` (public and private, respectively).
 ```rs
 -- type std = @import("std");
 
-++ i32 i;
+++ comptime i32 i = 42;
 
 ++ struct Example
 {
-    i32 i;
-    f32 f;
+    i32 integer;
+    f32 floating_point;
 };
 
 -- type MyAlias = Example;
@@ -181,8 +181,8 @@ struct scope, including nesting another struct declaration.
 ```rs
 ++ struct MyCustomArray
 {
-    u8*? bytes;
-    u64*? generations;
+    *?u8 bytes;
+    *?u64 generations;
     u64 size;
     u64 len;
 
@@ -212,16 +212,113 @@ i32 myint = 32;
 };
 ```
 
+To create variables stored in the data segment of the program, see
+[the `static` keyword section](#static-keyword).
+
 Procedural scope may include expressions which are not assigned. All expressions
 and assignments are calls to other procedures (`fun`s) or primitive operations
-such as math, copying, or taking the address of something. These expressions
+such as arithmetic, copying, or (de)referencing. These expressions
 will have side effects and will be run in consecutive order at runtime when the
 `fun` is called. There is a reserved `fun` name, `main`, which is a `fun` which
 is the entrypoint of the program.
 
 #### `using` keyword
 
-### Struct member access vs. namespace access
+The members of a struct can be collapsed into another struct where there are no
+name collisions between the members of the two structs. For example:
+
+```rs
+-- struct Person
+{
+    u64 age;
+    utf8[] name;
+
+    ++ fun printName(*self) {
+        std::println("{self.name}");
+    }
+}
+
+-- struct Member
+{
+    using Person person;
+    u64 join_day;
+}
+
+-- struct MemberNonUsing
+{
+    Person person;
+    u64 join_day;
+}
+
+++ fun main() {
+    Member m = { .age = 42, .name = "Guy", .join_day = 0 };
+    MemberNonUsing mnu = {
+        .person = { .age = 42, .name = "GuyNonUsing" },
+        .join_day = 0,
+    };
+
+    // includes member functions and compile time constants, ie. all
+    // public declarations + all member variables == all members
+    m.printName();
+
+    mnu.person.printName();
+
+    // NOTE: using is different from inheritance because the types cannot
+    // implicitly convert
+
+    // *Person inner = m&; // compile error! cannot assign *Member to *Person
+    *Person inner = m.person&;
+    *Person inner = mnu.person&;
+}
+```
+
+It is also possible to improve packing by allowing the compiler to mix members
+from the inner struct into members from the outer struct. This is achieved by
+eliminating the identifier after the struct type:
+
+```rs
+-- struct Member
+{
+    using Person /* person */;
+    u64 join_day;
+}
+
+++ fun main() {
+    Member m = { .age = 42, .name = "Guy", .join_day = 0 };
+    m.printName();
+
+    // this is a compile error, same as previous example.
+    // *Person p = m&;
+}
+```
+
+The downside to this is that, because the compiler is free to reorder the
+members, you can no longer create a `*Person` from the `Member`, as the fields
+of the `Person` substruct may be laid out in a way that functions accepting
+`*Person` do not expect.
+
+### `comptime` keyword
+
+Declarations of variables may be marked with `comptime`, enabling them to be
+used in comptile time expressions (namely, the default initialization
+expressions of struct member variables). For example:
+
+```rs
+-- comptime i64 value = 100;
+
+-- struct Example
+{
+    i64 i = value
+}
+```
+
+The expression on the right hand side of the equals sign must be able to be
+evaluated at compile time. Literals are compile-time known, and arithmetic and
+struct initialization can be done at compile time. Referencing other `comptime`
+variables is allowed. Calling functions or taking the address of something or
+dereferencing a pointer are not allowed.
+
+### Struct member access vs. "namespace" access
 
 Struct members are accessed with the typical `object.member` syntax. This
 includes methods and fields. For example:
@@ -230,7 +327,7 @@ includes methods and fields. For example:
 -- type std = @import("std");
 
 ++ struct Person {
-    *char name;
+    utf8[] name;
     u64 age;
 
     ++ fun printAge(self) {
@@ -255,7 +352,7 @@ of the struct, you use `::` instead of `.`. For example:
         std::print("hello");
     }
     ++ fun printGoodbye() {
-        std::print("hello");
+        std::print("goodbye");
     }
 
     ++ u64 size = 64;
@@ -267,3 +364,104 @@ of the struct, you use `::` instead of `.`. For example:
     return my_functions::size.to<i32>();
 }
 ```
+
+A file is also a struct. Using the built-in `@import` function you can import
+a file and call its functions in the same way you would a struct. For example:
+
+```rs
+// file_a.fun -----------------------------------
+-- type std = @import("std");
+
+++ fun test() {
+    std::println("testing...");
+}
+
+// main.fun -------------------------------------
+-- type otherfile = @import("file_a.fun");
+
+++ func main() {
+    otherfile::test();
+
+    // or, inlined:
+    @import("file_a.fun")::test();
+}
+```
+
+### `static` keyword
+
+The `static` keyword can be used before struct members and before struct
+declarations for two similar purposes. When used on a struct
+declaration, it means that there is only one instance of the struct, and it is
+not possible to instantiate it, and its member methods are called using the
+namespace `::` syntax instead of the `.` member access. For example:
+
+```rs
+-- static struct print_functions
+{
+    // NOTE: public member variable declaration. the `++` here only has an
+    // effect on static structs, and is harmless (and meaningless) when applied
+    // to the members of a nonstatic struct. Basically, nonstatic members are
+    // always public and static members are private by default but can be marked
+    // public with `++`.
+    // NOTE: a default initializer must be provided for pointers so that the
+    // struct can implement the `Default` trait. Only Default structs can be
+    // `static`. Another option here would be to provide no default and use
+    // *?char instead.
+    ++ utf8[] name = "DefaultName";
+
+    ++ fun printHelloName(*self) {
+        std::println(f"hello, {self.name:s}");
+    }
+
+    ++ fun printGoodbyeName(*self) {
+        std::println(f"goodbye, {self.name:s}");
+    }
+}
+
+++ fun main() {
+    print_functions::printHelloName();
+    print_functions::printGoodbyeName();
+    print_functions::name = "Glooby";
+    print_functions::printHelloName();
+    print_functions::printGoodbyeName();
+}
+```
+
+Removing the `static` keyword has no effect on the code within the struct,
+however `main()` would need to be rewritten like so:
+
+```rs
+++ fun main() {
+    print_functions functions = {}; // default things
+    functions.printHelloName();
+    functions.printGoodbyeName();
+    functions.name = "Glooby";
+    functions.printHelloName();
+    functions.printGoodbyeName();
+}
+```
+
+To declare a file as `static`, include the static keyword first in the file,
+followed by a semicolon:
+
+```rs
+// print_functions.fun ----------------------------
+static;
+
+++ utf8[] name = "DefaultName";
+
+++ fun printHelloName(*self) {
+    std::println(f"hello, {self.name}");
+}
+
+++ fun printGoodbyeName(*self) {
+    std::println(f"goodbye, {self.name:s}");
+}
+```
+
+Finally, `static` can be used before struct members to declare them const. This
+keyword means a) the field is initialized by a compile time constant expression
+an is not present in designated struct initializers and b) it does not take up
+space in actual instances of the struct and c) you cannot modify this field.
+This is primarily useful for declaring variables which need to be compile time
+constants but should also be able to have their address taken.
