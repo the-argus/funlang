@@ -15,12 +15,17 @@ We're gonna have:
 - Zig style captures for `if`, `while`, and `for`
 - bounds checked slices
 - defined overflow behavior
+- built-in vector types with swizzling
 - odin/jai struct `using` statement
 - an odin-style context pointer
+- shadowing
+- the `static struct` for easily switching between something being a struct
+  you have to instantiate vs. a singleton. just switch `struct` and
+  `static struct`
 - python style fstrings (which use the context's arena allocator by default)
 - `defer`
-- universal function call syntax + method-style function call syntax
-- functions can be in the namespace of a struct
+- functions can be inside of a struct, in which case they can use the `self`
+  keyword for their first arguments to become memeber methods
 - instead of labeled blocks, there are "taggable" blocks. mark a block `'` or
   `''` and then do `break';` `break'';` etc
 - A few built-in traits, no support for user-defined traits:
@@ -72,7 +77,7 @@ const int32_t i = 0;
 A declaration in funlang:
 
 ```rs
-u8* bytes = some_function();
+*u8 bytes = some_function();
 ```
 
 The equivalent C code:
@@ -82,12 +87,10 @@ const uint8_t* const bytes = some_function();
 ```
 
 A declaration in funlang:
-(the first `var` modifies `u8` and the second `var` modifies `*`. Rather than
-reading this as "a pointer to var" or reading a `T*` as a "pointer to const,"
-you can read it as a "const pointer" or "var pointer").
+(the first `var` modifies `*` and the second `var` modifies the `u8`)
 
 ```rs
-var u8 var* bytes = some_function();
+var *var u8 bytes = some_function();
 ```
 
 The equivalent C code:
@@ -99,7 +102,7 @@ uint8_t* bytes = some_function();
 A declaration in funlang:
 
 ```rs
-u8 var* bytes = some_function();
+*var u8 bytes = some_function();
 ```
 
 The equivalent C code:
@@ -123,14 +126,18 @@ Declarations (of structs, type aliases, compile time known variables, and
 functions) are preceded by a `++` or a `--` (public and private, respectively).
 
 - A type declaration is signalled by `++ type`, with the exception of struct
-  and namespace declarations, which are signalled by `++ struct` and
-  `++ namespace`, respectively. Though both structs and namespaces are types.
+  and enum declarations, which are signalled by `++ struct` and
+  `++ enum`, respectively. Though both structs and enums are also types.
 - A function is signalled by `++ fun`
 - A compile time known variable is signalled by `++ <known typename> ...`
+- All of the above can be preceded by a `--` instead of `++`, to create a
+  private declaration. A private declaration is visible only within the scope
+  it was declared in and inner scopes.
 
 ```rs
-// a file is namespace scope
 -- type std = @import("std");
+
+++ i32 i;
 
 ++ struct Example
 {
@@ -159,7 +166,7 @@ functions) are preceded by a `++` or a `--` (public and private, respectively).
 };
 ```
 
-### Struct syntax, and procedural vs. struct vs. namespace scope
+### Struct syntax, and procedural vs. struct scope
 
 Struct definitions are a type of declaration so they are preceded by a `++`.
 `++ struct <Name>` precedes a block (a set of curly braces). Inside this block
@@ -189,20 +196,19 @@ struct scope, including nesting another struct declaration.
 };
 ```
 
-The namespace scope is identical to struct scope syntactically, except that
-variable declarations are declaring variables in the data segment of the
-program which will be accessible for its entire duration. Initialization
-expressions must be provided for all variables, the same as procedural scope.
+The scope of a file is also the scope of a struct. For this reason it is not
+possible to create static variables which are accessible from functions in the
+namespace. To access variables declared at file scope, use `self` or `*self` or
+`*var self`:
 
 ```rs
-// namespace scope
 ++ type std = @import("std");
 
-var i32 my_global_int = 32;
+i32 myint = 32;
 
-++ fun test () {
-    std::print("f{my_global_int}");
-    my_global_int += 1;
+++ fun test (*var self) {
+    std::print("f{self.myint}");
+    self.myint += 1;
 };
 ```
 
