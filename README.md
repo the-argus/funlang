@@ -119,6 +119,19 @@ error:
 var i32 myvar;
 ```
 
+### Ignored return values
+
+The return value from every function must be used otherwise the compiler will
+emit a warning. To silence the warning, assign the variable to the reserved
+`_` match pattern:
+
+```rs
+_ = some_function_that_returns_something();
+```
+
+`_` is effectively a writeonly global variable which is always in scope and
+always of the type you write to it. The black hole!
+
 ### Declarations
 
 Declarations (of structs, type aliases, compile time known variables, public
@@ -545,7 +558,198 @@ explicitly use the `var` reference operator:
 
 ### enums
 
+An enum is a combination of a C-style union and a C-style enum. It contains
+both a discriminator (the enum) which identifies which member of the union
+is active. The alignment of an enum is equal to the alignment of its
+most aligned member, or the alignment of the smallest unsigned integer
+type that can uniquely identify all of fields of the enum (unless you have
+more than 256 values in the enum, this is usually just a u8). The size of
+an enum follows the same rule but with the largest member instead of the
+most aligned member.
+
+An enum may have member functions and comptime variable declarations, the
+same as a struct.
+
+```rs
+-- type std = @import("std");
+
+// a c-style enum
+++ enum GraphicsBackend
+{
+    // unused identifiers followed by a semicolon are interpreted as enum
+    // values
+    Vulkan;
+    DirectX12;
+    WebGPU;
+
+    ++ fun print(*self) {
+        // this is a worse solution than match statements, but those
+        // are in the next section
+        if self.* == Self::Vulkan {
+            std::println("Vulkan");
+        } else if self.* == Self::DirectX {
+            std::println("DirectX 12");
+        } else if self.* == Self::WebGPU {
+            std::println("WebGPU");
+        }
+    }
+}
+
+// usage of c style enum
+++ static struct GlobalGraphicsContext
+{
+    GraphicsBackend? chosen_backend;
+
+    ++ fun init(*var self, GraphicsBackend backend) {
+        self.chosen_backend = backend;
+        backend.print();
+    }
+
+    ++ fun initVulkan(*var self) {
+        self.chosen_backend = GraphicsBackend::Vulkan;
+        GraphicsBackend::Vulkan.print();
+    }
+}
+```
+
+But enums are also tagged unions, so enum variants can contain a type:
+
+```rs
+-- type vulkan = @import("vulkan");
+-- type directx = @import("vulkan");
+
+++ enum GraphicsContext {
+    VulkanImpl vulkan.ctx;
+    DirectXImpl directx.ctx;
+    // TODO: is this anonymous struct thing cool and simple or overcomplicated. I cannot tell
+    SoftwareImpl {
+        // another struct scope!
+        *[500]u8 pixbuf;
+        // ...
+    };
+};
+```
+
 #### Match statements
+
+Match statements are most obviously similar to switch statements in C, and are almost
+functionally identical when used on a c-style enum (an enum where none of the
+variants contain data)
+
+```rs
+++ type std = @import("std");
+
+-- enum FooBar
+{
+    Foo;
+    Bar;
+    Baz;
+}
+
+++ fun main() {
+    FooBar myfoo = FooBar::Foo;
+
+    match myfoo {
+    FooBar::Bar && std::println("bar");
+    FooBar::Baz && std::println("baz");
+    // multiple lines must be encased in a block
+    FooBar::Foo && {
+        std::println("this will print, I hope!");
+        std::println("foo");
+    }
+    }
+}
+```
+
+A match statement may include captures instead of literals. The above
+example only matched on literals. To match with a capture, simply use an
+unused identifier and it will become the capture declaration, and the
+identifier will become a variable in scope of the type being matched.
+
+```rs
+FooBar myfoo = FooBar::Foo;
+
+match myfoo {
+FooBar::Bar && std::println("bar");
+anything_else && std::println(f"got {anything_else.to<int>()}");
+}
+```
+
+Using a capture for a structural part of a match is effectively saying
+"take anything else (something that isn't one of the literals I have
+tried to match on) and put it in this variable." For this reason, a
+capture match clause must always be written after literal match clauses
+of the same part of the match. The capture is effectively the "else."
+For this reason, `_` can be thought of as the "default" case. It is
+a structural match on anything not already matched at any level of
+the structure of the type.
+
+```rs
+match myfoo {
+FooBar::Bar && std::println("bar");
+_ && std::println("anything else");
+}
+```
+
+Unlike a switch statement in C, there is no fallthrough. If you want to
+achieve fallthrough, you can use an if/else if/else chain :).
+
+Match statements can match on options. Write the `?` type decorator
+in the same position as it appears on the unmatched type in order to
+match on active optionals. And use `null` to match on an unused/empty/inactive
+optional.
+
+```res
+++ fun someFunction() -> i64? {
+    // ...
+}
+
+++ fun main() {
+    match someFunction() {
+    return_value? && {
+        std::println(f"got {return_value}");
+    }
+    null && @panic("failure");
+    }
+}
+```
+
+And match statements can match on nested options and enums *and* values.
+
+```res
+-- enum FooBar
+{
+    Foo i64?;
+    Bar;
+    Baz;
+    Zig;
+    Zag;
+}
+
+++ fun someFunction() -> FooBar? {
+    // ...
+}
+
+++ fun main() {
+    match someFunction() {
+    FooBar::Bar? && std::println("got bar");
+    FooBar::Baz? && std::println("got baz");
+    FooBar::Foo? 12? && {
+        @panic("oh no, got specifically the number twelve which is a horrible error");
+    };
+    FooBar::Foo? null && {
+        // a foo containing null
+        @panic("that shouldn't happen");
+    };
+    FooBar::Foo? _? && {
+        // foo containing anything not null and not 12
+    };
+
+    // anything else
+    _ && @panic("failure");
+    }
+}
+```
 
 ### Slices and arrays
 
