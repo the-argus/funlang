@@ -699,7 +699,7 @@ in the same position as it appears on the unmatched type in order to
 match on active optionals. And use `null` to match on an unused/empty/inactive
 optional.
 
-```res
+```rs
 ++ fun someFunction() -> i64? {
     // ...
 }
@@ -716,7 +716,7 @@ optional.
 
 And match statements can match on nested options and enums *and* values.
 
-```res
+```rs
 -- enum FooBar
 {
     Foo i64?;
