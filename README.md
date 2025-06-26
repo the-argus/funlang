@@ -194,8 +194,8 @@ struct scope, including nesting another struct declaration.
 ```rs
 ++ struct MyCustomArray
 {
-    *?u8 bytes;
-    *?u64 generations;
+    ?*u8 bytes;
+    ?*u64 generations;
     u64 size;
     u64 len;
 
@@ -419,7 +419,7 @@ namespace `::` syntax instead of the `.` member access. For example:
     // NOTE: a default initializer must be provided for pointers so that the
     // struct can implement the `Default` trait. Only Default structs can be
     // `static`. Another option here would be to provide no default and use
-    // *?char instead.
+    // ?*char instead.
     ++ []utf8 name = "DefaultName";
 
     ++ fun printHelloName(self) {
@@ -515,19 +515,19 @@ special keyword `self` in place of the type and identifier of the first argument
 {
     []utf8 name;
     u64 age;
-    *?Person child;
+    ?*Person child;
 
     ++ fun setChild(*var self, *Person child) {
         self.child = child;
     }
 
-    ++ fun getChild(*self) -> *?Person {
+    ++ fun getChild(*self) -> ?*Person {
         return self.child;
     }
 }
 ```
 
-When calling member methods which take `self` by `var*`, it is necessary to
+When calling member methods which take `self` by `*var`, it is necessary to
 explicitly use the `var` reference operator:
 
 ```rs
@@ -598,7 +598,7 @@ same as a struct.
 // usage of c style enum
 ++ static struct GlobalGraphicsContext
 {
-    GraphicsBackend? chosen_backend;
+    ?GraphicsBackend chosen_backend;
 
     ++ fun init(*var self, GraphicsBackend backend) {
         self.chosen_backend = backend;
@@ -619,8 +619,8 @@ But enums are also tagged unions, so enum variants can contain a type:
 -- type directx = @import("vulkan");
 
 ++ enum GraphicsContext {
-    VulkanImpl vulkan.ctx;
-    DirectXImpl directx.ctx;
+    VulkanImpl vulkan::ctx;
+    DirectXImpl directx::ctx;
     // TODO: is this anonymous struct thing cool and simple or overcomplicated. I cannot tell
     SoftwareImpl {
         // another struct scope!
@@ -630,11 +630,109 @@ But enums are also tagged unions, so enum variants can contain a type:
 };
 ```
 
-#### Match statements
+#### Pattern matching
 
-Match statements are most obviously similar to switch statements in C, and are almost
-functionally identical when used on a c-style enum (an enum where none of the
-variants contain data)
+Pattern matching is used to access the inner elements of an enum or optional
+which may be nested. For example, you may have an optional enum, whose variant
+may contain an optional `i64`. You could make nested if statements to check for
+the outer optional not being null, the enum being the optional `i64`-containing
+variant, and the `i64` not being null, but that would be clunky and cause
+unecessary nesting. To solve this, there are custom control flow primitives to
+enable paths with access to certain inner variables of types are only accessible
+if they also exist within the object.
+Thse control flow primitives are:
+
+- `if is`: Similar to `if let` in rust, this checks if a variable can be
+  matched by a given pattern and captures the result, and only runs the
+  resulting block if the match was successful.
+- `is ... else`: Similar to `let else` in rust, perform a pattern match
+  and assign the resulting inner value to a left-hand-side variable, otherwise
+  run the contents of the `else` block. The match statement always must include
+  a capture, and the capture is elided in favor of assigning to the LHS identifier.
+- `while is`: Identical to `if is` but for the conditional of a while
+  loop rather than an `if` block.
+- `match`: perform many possible pattern matches, executing only one case
+  (branch) where the match was successful.
+
+The syntax for pattern matching is as follows:
+
+```txt
+<<typename | ?> [typename | ?...]<literal | (<capture | _>)> | (<capture | _>) | <literal>>
+```
+
+For example, given the following types:
+
+```rs
+-- enum FooBar
+{
+    Foo ?i64;
+    Bar;
+    Baz;
+    Zig;
+    Zag;
+}
+
+++ fun someFunction() -> ?FooBar { /* ... */ }
+```
+
+To perform an access to the `i64` inside the `Foo` variant returned from
+`someFunction` using `is else`, eliminating the capture `(<capture | _>)` and
+instead performing assignment:
+
+```rs
+++ fun main() -> i32 {
+    i64 inner_int = someFunction() is ?FooBar::Foo else {
+        // someFunction didn't return a FooBar::Foo, so we can't use the int
+        // inside it
+        return 1;
+    };
+
+    // do something with inner_int
+}
+```
+
+To perform the same using an `if is`:
+
+```rs
+++ fun main() -> i32 {
+    if someFunction() is ?FooBar::Foo(inner_int) {
+        // do something with inner_int
+    } else {
+        // someFunction didn't return a FooBar::Foo, so we can't use the int
+        // inside it
+        return 1;
+    }
+
+    // also valid: no capture
+    if someFunction() is ?FooBar::Foo {
+        // ...
+    }
+}
+```
+
+To create something like an iterator in userspace, use `while is` and a
+generator/iterator object:
+
+```rs
+++ struct OptionalFooBarGenerator { /* */ }
+
+++ fun createOptionalFooBarGenerator() -> OptionalFooBarGenerator { /* ... */ }
+
+++ fun next(*var OptionalFooBarGenerator) -> ??FooBar { /* ... */ }
+
+++ fun main() -> i32 {
+    var OptionalFooBarGenerator gen = createOptionalFooBarGenerator();
+
+    // loop until one of the items is not a FooBar::Foo
+    while next(&var gen) is ??FooBar::Foo(inner_int) {
+        // do something with inner_int
+    }
+}
+```
+
+Then there are `match` statements. Match statements are most obviously similar
+to switch statements in C, and are almost functionally identical when used on a
+c-style enum (an enum where none of the variants contain data). For example:
 
 ```rs
 ++ type std = @import("std");
@@ -644,34 +742,39 @@ variants contain data)
     Foo;
     Bar;
     Baz;
+    Zig;
+    Zag;
 }
 
-++ fun main() {
-    FooBar myfoo = FooBar::Foo;
+++ fun someFunction() -> FooBar { /* ... */ }
 
-    match myfoo {
-    FooBar::Bar && std::println("bar");
-    FooBar::Baz && std::println("baz");
-    // multiple lines must be encased in a block
-    FooBar::Foo && {
-        std::println("this will print, I hope!");
-        std::println("foo");
-    }
+++ fun main() {
+    match someFunction() {
+        FooBar::Bar => std::println("bar");
+        FooBar::Baz => std::println("baz");
+
+        // multiple lines must be encased in a block
+        FooBar::Foo => {
+            std::println("this will print, I hope!");
+            std::println("foo");
+        }
+
+        FooBar::Zig => std::println("zig");
+        FooBar::Zag => std::println("zag");
     }
 }
 ```
 
-A match statement may include captures instead of literals. The above
-example only matched on literals. To match with a capture, simply use an
-unused identifier and it will become the capture declaration, and the
-identifier will become a variable in scope of the type being matched.
+The above example only matches on literals, but a match statement may include
+captures instead of literals.
 
 ```rs
 FooBar myfoo = FooBar::Foo;
 
 match myfoo {
-FooBar::Bar && std::println("bar");
-anything_else && std::println(f"got {anything_else.to<int>()}");
+    FooBar::Bar => std::println("bar");
+    FooBar::Baz => std::println("baz");
+    (anything_else) => std::println(f"got {anything_else.to<int>()}");
 }
 ```
 
@@ -686,8 +789,8 @@ the structure of the type.
 
 ```rs
 match myfoo {
-FooBar::Bar && std::println("bar");
-_ && std::println("anything else");
+FooBar::Bar => std::println("bar");
+(_) => std::println("anything else");
 }
 ```
 
@@ -700,53 +803,50 @@ match on active optionals. And use `null` to match on an unused/empty/inactive
 optional.
 
 ```rs
-++ fun someFunction() -> i64? {
+++ fun someFunction() -> ?i64 {
     // ...
 }
 
 ++ fun main() {
     match someFunction() {
-    return_value? && {
-        std::println(f"got {return_value}");
-    }
-    null && @panic("failure");
-    }
+        ?(return_value) => {
+            std::println(f"got {return_value}");
+        };
+        null => @panic("failure");
+    };
 }
 ```
 
-And match statements can match on nested options and enums *and* values.
+Here is a more complex example, also including `is else` syntax
 
 ```rs
+-- type std = @import("std");
+
 -- enum FooBar
 {
-    Foo i64?;
+    Foo ?i64;
     Bar;
     Baz;
     Zig;
     Zag;
 }
 
-++ fun someFunction() -> FooBar? {
-    // ...
-}
+++ fun someFunction() -> ?FooBar { /* */ }
 
 ++ fun main() {
-    match someFunction() {
-    FooBar::Bar? && std::println("got bar");
-    FooBar::Baz? && std::println("got baz");
-    FooBar::Foo? 12? && {
-        @panic("oh no, got specifically the number twelve which is a horrible error");
-    };
-    FooBar::Foo? null && {
-        // a foo containing null
-        @panic("that shouldn't happen");
-    };
-    FooBar::Foo? _? && {
-        // foo containing anything not null and not 12
+    i64 matched = someFunction() is ?FooBar::Foo ? else {
+        return 1;
     };
 
-    // anything else
-    _ && @panic("failure");
+    match someFunction() {
+        ?FooBar::Bar => std::println("bar");
+        ?FooBar::Baz => std::println("baz");
+        ?FooBar::Zig => std::println("zig");
+        ?FooBar::Foo null => @panic("got nothing for inner integer");
+        ?FooBar::Foo 12 => @panic("oh no... twelve");
+        ?FooBar::Foo (inner_int) => std::println(f"got {inner_int}");
+        null => @panic("got nothing");
+        (_) => std::println("unrecognized return value");
     }
 }
 ```
