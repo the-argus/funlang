@@ -540,9 +540,125 @@ explicitly use the `var` reference operator:
 }
 ```
 
-### `if` / `else` and captures
+### Boolean operators
 
-### `while` and captures
+Funlang uses spoken language words for boolean operators: `and`, `or`, and
+`not`. These have the expected associativity of C's `&&`, `||`, and `!`.
+
+### Bitwise operators and bit casting
+
+Bitwise operations are performed in the same manner as C, with:
+
+- `&`: bitwise AND, binary op
+- `|`: bitwise OR, binary op
+- `~`: bitwise NOT, unary op
+- `^`: bitwise XOR, binary op
+
+Bitwise operations can only be performed on integers of the same type.
+
+The built-in `@bit_cast` can be used to bitwise cast from one pointer or
+primitive type to another, provided the two types are the same size. It performs
+a copy, to prevent aliasing issues. For example:
+
+```rs
+i64 a = 100;
+u64 b = @bit_cast<i64, u64>(a);
+f64 c = @bit_cast<i64, f64>(a);
+
+bool a = true;
+ascii mychar = @bit_cast<bool, ascii>();
+u8 byte = @bit_cast<bool, u8>();
+i8 byte2 = @bit_cast<bool, i8>();
+```
+
+The type arguments to `@bit_cast` are the initial type and the target type,
+respectively.
+
+You cannot `@bit_cast` to or from a `utf8` byte. TODO: how do strings work
+
+### Bitsets
+
+Bitsets are a built-in type similar to enums. They represent a number of boolean
+flags. A bitset can be defined like so:
+
+```rs
+-- bitset CLIFlags
+{
+    Verbose;
+    Pretty;
+    Wayland;
+}
+```
+
+You can define static members, comptime members, and member methods in a bitset,
+the same as an enum. You can also use bitwise operators on an instance of a
+bitset, but only with another bitset of the same type.
+
+### `if` / `else`
+
+Funlang uses if and else for conditional control flow, similar to C. Unlike C,
+conditional clauses do not need to be encased in parentheses. The contents of
+an if statement must always be enclosed in curly braces. The contents of the
+conditional must always be of type boolean, or implicitly convertible to a
+boolean (an option).
+
+```rs
+if myVar == true {
+    // ...
+} else if false {
+    // ...
+} else {
+    // ...
+}
+```
+
+Later, captures and pattern matching are covered, which can be used with if and
+else to produce more complex conditions.
+
+### `while` keyword
+
+The `while` loop will loop until its condition is no longer true. The syntax for
+conditions are the same as for an `if` statement.
+
+```rs
+while not windowShouldClose() {
+    // ...
+}
+```
+
+### `impl` keyword
+
+The `impl` keyword can be used to implement function for built-in traits or
+declared but not defined functions (the latter is useful to prevent nesting).
+An `impl` function might look like as follows (including struct definition):
+
+```rs
+++ struct Person
+{
+    []utf8 name;
+
+    // declaration, no definition
+    ++ fun printName(*self);
+}
+
+impl fun Person::printName(*self) {
+    @import("std")::println(f"{self.name}");
+}
+```
+
+Notice the qualification of the `printName` identifier with `Person::`.
+
+To implement a trait:
+
+```rs
+++ struct Person
+{
+    []utf8 name;
+
+    ++ fun printName(*self);
+    impl Clone;
+}
+```
 
 ### `for` and `Iter` and `RandomAccessIter`
 
